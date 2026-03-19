@@ -1,5 +1,6 @@
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
+import { cors } from 'hono/cors';
 import { WebSocketServer } from 'ws';
 import type { Server } from 'http';
 import { authenticateWs } from './lib/auth';
@@ -10,6 +11,9 @@ import filesApp from './lib/files';
 import downloadApp from './lib/download';
 
 const app = new Hono();
+
+// CORS — safe with PSK auth (no cookie/session auth)
+app.use('*', cors());
 
 // Request logging middleware
 app.use('*', requestLogger);
