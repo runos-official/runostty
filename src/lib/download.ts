@@ -73,7 +73,7 @@ app.get('/download', authMiddleware, (c) => {
   });
 
   const safeFilename = dirName.replace(/[^\w.-]/g, '_');
-  const timestamp = new Date().toISOString().replace(/[:.\-]/g, '');
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '').replace(/-/g, '');
 
   return new Response(stream, {
     headers: {

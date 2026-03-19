@@ -21,20 +21,22 @@ function createTestApp(baseDir: string) {
     const userCfg = c.get('userCfg');
     const project = c.req.query('project');
 
-    if (!project || !/^[\w.-]+$/.test(project)) {
-      return c.json({ error: 'Invalid or missing project name' }, 400);
+    if (!project) {
+      return c.json({ error: 'Missing project parameter' }, 400);
     }
 
-    const projectBaseDir = `${userCfg.home}/project`;
-    const projectDir = `${projectBaseDir}/${project}`;
+    const targetDir = path.join(userCfg.home, project);
 
-    const resolved = safePath(projectDir, projectBaseDir);
+    const resolved = safePath(targetDir, userCfg.home);
     if (!resolved) return c.json({ error: 'Forbidden: path outside allowed directory' }, 403);
     if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
-      return c.json({ error: 'Project not found' }, 404);
+      return c.json({ error: 'Directory not found' }, 404);
     }
 
-    const tar = spawn('tar', ['czf', '-', '-C', projectBaseDir, project]);
+    const parentDir = path.dirname(resolved);
+    const dirName = path.basename(resolved);
+
+    const tar = spawn('tar', ['czf', '-', '-C', parentDir, dirName]);
 
     const stream = new ReadableStream({
       start(controller) {
@@ -48,10 +50,13 @@ function createTestApp(baseDir: string) {
       },
     });
 
+    const safeFilename = dirName.replace(/[^\w.-]/g, '_');
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '').replace(/-/g, '');
+
     return new Response(stream, {
       headers: {
         'Content-Type': 'application/gzip',
-        'Content-Disposition': `attachment; filename="${project}.tar.gz"`,
+        'Content-Disposition': `attachment; filename="${safeFilename}_${timestamp}.tar.gz"`,
       },
     });
   });
@@ -77,10 +82,11 @@ describe('download route', () => {
   });
 
   it('returns a tar.gz archive for a valid project', async () => {
-    const res = await app.request('/download?project=myapp');
+    const res = await app.request('/download?project=project/myapp');
     expect(res.status).toBe(200);
     expect(res.headers.get('Content-Type')).toBe('application/gzip');
-    expect(res.headers.get('Content-Disposition')).toBe('attachment; filename="myapp.tar.gz"');
+    const disposition = res.headers.get('Content-Disposition') || '';
+    expect(disposition).toMatch(/^attachment; filename="myapp_\d{8}T\d{9}Z\.tar\.gz"$/);
 
     // Verify the response body is non-empty gzip data
     const buffer = await res.arrayBuffer();
@@ -96,14 +102,9 @@ describe('download route', () => {
     expect(res.status).toBe(400);
   });
 
-  it('returns 400 for invalid project name with path traversal', async () => {
+  it('returns 403 for path traversal attempt', async () => {
     const res = await app.request('/download?project=../../../etc');
-    expect(res.status).toBe(400);
-  });
-
-  it('returns 400 for project name with spaces', async () => {
-    const res = await app.request('/download?project=my%20app');
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(403);
   });
 
   it('returns 404 for non-existent project', async () => {
@@ -115,7 +116,18 @@ describe('download route', () => {
     fs.mkdirSync(path.join(tmpDir, 'project', 'my-app_v1.0'), { recursive: true });
     fs.writeFileSync(path.join(tmpDir, 'project', 'my-app_v1.0', 'f.txt'), 'x');
 
-    const res = await app.request('/download?project=my-app_v1.0');
+    const res = await app.request('/download?project=project/my-app_v1.0');
     expect(res.status).toBe(200);
+  });
+
+  it('supports nested paths', async () => {
+    fs.mkdirSync(path.join(tmpDir, 'Play', 'poll'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'Play', 'poll', 'test.txt'), 'hello');
+
+    const res = await app.request('/download?project=Play/poll');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Content-Type')).toBe('application/gzip');
+    const disposition = res.headers.get('Content-Disposition') || '';
+    expect(disposition).toMatch(/^attachment; filename="poll_\d{8}T\d{9}Z\.tar\.gz"$/);
   });
 });

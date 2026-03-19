@@ -166,10 +166,11 @@ describe('server integration', () => {
 
   describe('GET /download', () => {
     it('returns a valid tar.gz archive', async () => {
-      const res = await fetch(`${baseUrl}/download?token=${PSK}&project=myapp`);
+      const res = await fetch(`${baseUrl}/download?token=${PSK}&project=project/myapp`);
       expect(res.status).toBe(200);
       expect(res.headers.get('content-type')).toBe('application/gzip');
-      expect(res.headers.get('content-disposition')).toBe('attachment; filename="myapp.tar.gz"');
+      const disposition = res.headers.get('content-disposition') || '';
+      expect(disposition).toMatch(/^attachment; filename="myapp_\d{8}T\d{9}Z\.tar\.gz"$/);
 
       const buffer = new Uint8Array(await res.arrayBuffer());
       expect(buffer.length).toBeGreaterThan(0);
@@ -180,7 +181,7 @@ describe('server integration', () => {
 
     it('rejects invalid project names', async () => {
       const res = await fetch(`${baseUrl}/download?token=${PSK}&project=../../../etc`);
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(403);
     });
 
     it('returns 404 for non-existent project', async () => {
