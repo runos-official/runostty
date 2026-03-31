@@ -79,7 +79,7 @@ WORKDIR /home/dev
 ARG CLAUDE_VER=2
 RUN curl -fsSL https://claude.ai/install.sh | bash
 
-ARG RUNOS_VER=5
+ARG RUNOS_VER=6
 ARG RUNOS_ENV=dev
 ENV RUNOS_ENV=${RUNOS_ENV}
 RUN curl -fsSL https://get.${RUNOS_ENV}.runos.com/cli.sh | bash
