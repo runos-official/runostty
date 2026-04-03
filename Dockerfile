@@ -50,7 +50,9 @@ RUN mkdir -p /opt/devops/bin \
     && curl -fsSL "https://dl.k8s.io/release/$(curl -sL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" -o /opt/devops/bin/kubectl \
     && chmod +x /opt/devops/bin/kubectl \
     && curl -fsSL -L https://github.com/derailed/k9s/releases/download/v0.50.18/k9s_Linux_amd64.tar.gz | tar xz -C /opt/devops/bin k9s \
-    && chmod +x /opt/devops/bin/k9s
+    && chmod +x /opt/devops/bin/k9s \
+    && curl -fsSL -L https://github.com/stern/stern/releases/download/v1.33.1/stern_1.33.1_linux_amd64.tar.gz | tar xz -C /opt/devops/bin stern \
+    && chmod +x /opt/devops/bin/stern
 
 # Add devops-only PATH
 RUN echo 'export PATH="/opt/devops/bin:$HOME/.local/bin:$PATH"' >> /home/devops/.bashrc
