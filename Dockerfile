@@ -58,7 +58,10 @@ RUN mkdir -p /opt/devops/bin \
 RUN echo 'export PATH="/opt/devops/bin:$HOME/.local/bin:$PATH"' >> /home/devops/.bashrc
 
 # Install global npm packages as root
-RUN npm i -g @openai/codex @google/gemini-cli
+# Bump the number to force a fresh install of codex/gemini
+ARG NPM_CLI_VER=2
+RUN echo "npm cli build ${NPM_CLI_VER}" \
+    && npm i -g @openai/codex @google/gemini-cli
 
 # Set up the terminal server app
 WORKDIR /app
@@ -78,15 +81,15 @@ USER dev
 WORKDIR /home/dev
 
 # Bump the number to force a fresh install of that CLI
-ARG CLAUDE_VER=2
+ARG CLAUDE_VER=3
 RUN curl -fsSL https://claude.ai/install.sh | bash
 
-ARG RUNOS_VER=6
+ARG RUNOS_VER=7
 ARG RUNOS_ENV=dev
 ENV RUNOS_ENV=${RUNOS_ENV}
 RUN curl -fsSL https://get.${RUNOS_ENV}.runos.com/cli.sh | bash
 
-ARG OPENCODE_VER=2
+ARG OPENCODE_VER=3
 RUN curl -fsSL https://opencode.ai/install | bash
 
 USER root
