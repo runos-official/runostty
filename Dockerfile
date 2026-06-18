@@ -59,7 +59,7 @@ RUN echo 'export PATH="/opt/devops/bin:$HOME/.local/bin:$PATH"' >> /home/devops/
 
 # Install global npm packages as root
 # Bump the number to force a fresh install of codex/gemini
-ARG NPM_CLI_VER=2
+ARG NPM_CLI_VER=3
 RUN echo "npm cli build ${NPM_CLI_VER}" \
     && npm i -g @openai/codex @google/gemini-cli
 
@@ -81,15 +81,15 @@ USER dev
 WORKDIR /home/dev
 
 # Bump the number to force a fresh install of that CLI
-ARG CLAUDE_VER=3
+ARG CLAUDE_VER=4
 RUN curl -fsSL https://claude.ai/install.sh | bash
 
-ARG RUNOS_VER=7
+ARG RUNOS_VER=8
 ARG RUNOS_ENV=dev
 ENV RUNOS_ENV=${RUNOS_ENV}
 RUN curl -fsSL https://get.${RUNOS_ENV}.runos.com/cli.sh | bash
 
-ARG OPENCODE_VER=3
+ARG OPENCODE_VER=4
 RUN curl -fsSL https://opencode.ai/install | bash
 
 USER root
