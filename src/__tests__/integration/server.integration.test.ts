@@ -82,6 +82,20 @@ describe('server integration', () => {
       expect(res.status).toBe(401);
     });
 
+    it('accepts a bearer token in the Authorization header, with none in the URL', async () => {
+      const res = await fetch(`${baseUrl}/files`, {
+        headers: { Authorization: `Bearer ${PSK}` },
+      });
+      expect(res.status).toBe(200);
+    });
+
+    it('rejects a wrong bearer token', async () => {
+      const res = await fetch(`${baseUrl}/files`, {
+        headers: { Authorization: `Bearer ${INVALID_PSK}` },
+      });
+      expect(res.status).toBe(401);
+    });
+
     it('accepts requests with a valid token', async () => {
       const res = await fetch(`${baseUrl}/files?token=${PSK}`);
       expect(res.status).toBe(200);
@@ -228,6 +242,66 @@ describe('server integration', () => {
 
       expect(data).toContain('__INTEGRATION_TEST__');
     });
+
+    // The PSK now travels as a subprotocol rather than a query parameter, so it stays out of the
+    // ingress access log, the browser's history and any leaked Referer. These run against a real
+    // handshake because the part that bites is protocol-level: a server that selects NO
+    // subprotocol when the client offered one makes a browser abort the connection outright.
+    it('accepts a token offered as a subprotocol, with no token in the URL', async () => {
+      const ws = new WebSocket(`${wsUrl}/`, ['runos.tty.v1', `runos.psk.${PSK}`]);
+
+      const data = await new Promise<string>((resolve, reject) => {
+        let output = '';
+        ws.on('open', () => ws.send('echo __SUBPROTOCOL_AUTH__\n'));
+        ws.on('message', (msg) => {
+          output += msg.toString();
+          if (output.includes('__SUBPROTOCOL_AUTH__')) {
+            ws.close();
+            resolve(output);
+          }
+        });
+        ws.on('error', reject);
+        setTimeout(() => {
+          ws.close();
+          reject(new Error('Timeout waiting for shell output'));
+        }, 10_000);
+      });
+
+      expect(data).toContain('__SUBPROTOCOL_AUTH__');
+    });
+
+    it('selects a subprotocol, without which a browser aborts the connection', async () => {
+      const ws = new WebSocket(`${wsUrl}/`, ['runos.tty.v1', `runos.psk.${PSK}`]);
+      const selected = await new Promise<string>((resolve, reject) => {
+        ws.on('open', () => {
+          resolve(ws.protocol);
+          ws.close();
+        });
+        ws.on('error', reject);
+        setTimeout(() => reject(new Error('Timeout waiting for open')), 10_000);
+      });
+      expect(selected).toBe('runos.tty.v1');
+    });
+
+    it('never echoes the psk back as the selected subprotocol', async () => {
+      // The selection is returned in a response header. Echoing the token there would move the
+      // secret from one log to another rather than out of them.
+      const ws = new WebSocket(`${wsUrl}/`, ['runos.tty.v1', `runos.psk.${PSK}`]);
+      const selected = await new Promise<string>((resolve, reject) => {
+        ws.on('open', () => {
+          resolve(ws.protocol);
+          ws.close();
+        });
+        ws.on('error', reject);
+        setTimeout(() => reject(new Error('Timeout waiting for open')), 10_000);
+      });
+      expect(selected).not.toContain(PSK);
+    });
+
+    it('rejects a wrong token offered as a subprotocol', async () => {
+      const { code } = await connectWs(`${wsUrl}/`, ['runos.tty.v1', `runos.psk.${INVALID_PSK}`]);
+      expect(code).toBe(4401);
+    });
   });
 
   // --- WebSocket terminal resize ---
@@ -327,9 +401,9 @@ async function waitForReady(baseUrl: string, retries = 30, delayMs = 500): Promi
   throw new Error('Server did not become ready');
 }
 
-function connectWs(url: string): Promise<{ code: number; reason: string }> {
+function connectWs(url: string, protocols?: string[]): Promise<{ code: number; reason: string }> {
   return new Promise((resolve) => {
-    const ws = new WebSocket(url);
+    const ws = new WebSocket(url, protocols);
     ws.on('close', (code, reason) => {
       resolve({ code, reason: reason.toString() });
     });

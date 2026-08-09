@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { WebSocketServer } from 'ws';
 import type { Server } from 'http';
-import { authenticateWs } from './lib/auth';
+import { authenticateWs, selectWsSubprotocol } from './lib/auth';
 import { handleConnection } from './lib/terminal';
 import { logger } from './lib/logger';
 import { requestLogger } from './lib/middleware';
@@ -41,7 +41,14 @@ const server = serve({ fetch: app.fetch, port: PORT }, (info) => {
 });
 
 // Attach WebSocket server to the same HTTP server
-const wss = new WebSocketServer({ server: server as unknown as Server });
+// handleProtocols is not optional once a client offers a subprotocol: `ws` answers without a
+// Sec-WebSocket-Protocol header if nothing is selected, and the browser then aborts the
+// connection with "Server sent no subprotocol". The selection deliberately never returns the
+// psk protocol, which would echo the secret straight back into a response header.
+const wss = new WebSocketServer({
+  server: server as unknown as Server,
+  handleProtocols: (protocols) => selectWsSubprotocol(protocols),
+});
 
 wss.on('connection', (ws, req) => {
   if (!authenticateWs(req)) {
