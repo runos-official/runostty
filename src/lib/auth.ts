@@ -49,14 +49,14 @@ function validateToken(token: string): boolean {
  *
  * A secret in a query string is written down in several places nobody thinks about at the time:
  * the ingress access log, the browser's own history, and any `Referer` a page leaks. So the
- * token now rides a header on both transports: `Sec-WebSocket-Protocol` for the websocket
- * (the only header a browser's WebSocket constructor can influence) and `Authorization: Bearer`
- * for the HTTP endpoints.
+ * token rides a header on both transports: `Sec-WebSocket-Protocol` for the websocket (the only
+ * header a browser's WebSocket constructor can influence) and `Authorization: Bearer` for the
+ * HTTP endpoints.
  *
- * The query form is still ACCEPTED, deliberately and temporarily, so a console built against the
- * old contract keeps working while runostty rolls. It is scheduled for removal once no client
- * sends it; until then the header always WINS, so a stale URL cannot re-authorise a request
- * whose header was rejected.
+ * The query form was accepted for exactly one release, so runostty could ship before the console
+ * without breaking every terminal in between. Both are deployed and no client sends one, so it is
+ * now REFUSED: while it stood it was the whole of the remaining exposure, since nothing stopped a
+ * new caller being written that way.
  */
 
 /** The subprotocol that carries the PSK. Offered by the client, never echoed back. */
@@ -68,9 +68,9 @@ const TTY_PROTOCOL = 'runos.tty.v1';
 /**
  * Pull the PSK out of a websocket upgrade.
  *
- * Returns null rather than falling through to the query when a psk subprotocol is present but
- * wrong: a client that speaks the new contract has said which token it means, and quietly
- * trying an older one from the URL would make the header impossible to trust.
+ * The offered subprotocol list is the only place it may be. A token in the URL is ignored
+ * entirely rather than tried as a second chance, so nothing can put a live credential back into
+ * an access log by reverting a client.
  */
 function extractWsToken(req: IncomingMessage): string | null {
   const offered = req.headers?.['sec-websocket-protocol'];
@@ -80,13 +80,7 @@ function extractWsToken(req: IncomingMessage): string | null {
     .filter(Boolean);
 
   const psk = list.find((p) => p.startsWith(PSK_PROTOCOL_PREFIX));
-  if (psk) return psk.slice(PSK_PROTOCOL_PREFIX.length) || null;
-  if (list.length > 0 && list.includes(TTY_PROTOCOL)) {
-    // Speaks the new contract but offered no token: an explicit refusal, not a fallback.
-    return null;
-  }
-
-  return new URL(req.url || '', 'http://localhost').searchParams.get('token');
+  return psk ? psk.slice(PSK_PROTOCOL_PREFIX.length) || null : null;
 }
 
 /** Authenticates a WebSocket upgrade request. */
@@ -108,19 +102,15 @@ export function selectWsSubprotocol(offered: Set<string>): string | false {
   return offered.has(TTY_PROTOCOL) ? TTY_PROTOCOL : false;
 }
 
-/** The PSK for an HTTP request: the bearer header if present, else the legacy query token. */
-export function extractHttpToken(
-  authorization: string | undefined,
-  queryToken: string | undefined,
-): string | null {
+/** The PSK for an HTTP request. The bearer header is the only place it may be. */
+export function extractHttpToken(authorization: string | undefined): string | null {
   const bearer = /^bearer\s+(.+)$/i.exec(authorization?.trim() || '');
-  if (bearer) return bearer[1].trim() || null;
-  return queryToken || null;
+  return bearer ? bearer[1].trim() || null : null;
 }
 
 /** Hono middleware that validates the PSK token and resolves the user context. */
 export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
-  const token = extractHttpToken(c.req.header('authorization'), c.req.query('token'));
+  const token = extractHttpToken(c.req.header('authorization'));
   if (!token) {
     return c.json({ error: 'Unauthorized' }, 401);
   }

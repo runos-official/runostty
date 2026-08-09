@@ -46,7 +46,12 @@ Port 7681
        └─ PTY shell (node-pty) with uid/gid isolation
 ```
 
-All endpoints authenticate via `?token=<PSK>` validated against `/etc/runostty/psk`.
+All endpoints authenticate against `/etc/runostty/psk` with the PSK carried in a header, never in
+the URL: `Authorization: Bearer <PSK>` for HTTP, and a `runos.psk.<PSK>` entry in
+`Sec-WebSocket-Protocol` for the websocket (the only request header a browser's `WebSocket`
+constructor can influence). A token in the query string is REFUSED; it used to be accepted and was
+removed once every client sent headers, because a URL secret lands in the ingress access log, the
+browser's history and any leaked `Referer`.
 
 ### Key modules (`src/lib/`)
 

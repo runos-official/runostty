@@ -65,7 +65,7 @@ Beyond the terminal, runostty exposes HTTP endpoints for programmatic file acces
 | `GET /files/content?path=...` | Read a file with proper MIME type |
 | `GET /download?project=...` | Stream a project directory as a `.tar.gz` archive |
 
-All endpoints require `&token=<PSK>` and scope file access to the authenticated user's home directory. Path traversal is blocked.
+All endpoints require `Authorization: Bearer <PSK>` and scope file access to the authenticated user's home directory. Path traversal is blocked. The websocket carries the same PSK as a `runos.psk.<PSK>` entry in `Sec-WebSocket-Protocol`. A token in the query string is refused on both, so a live credential never reaches an access log or a browser's history.
 
 ## Security
 

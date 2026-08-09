@@ -6,6 +6,14 @@ import path from 'path';
 const PSK = 'test-psk-token-12345';
 const INVALID_PSK = 'wrong-token';
 
+/**
+ * The PSK travels as a header on every transport, never in the URL. HTTP takes a bearer, the
+ * websocket takes a subprotocol; nothing here may put a live credential where an access log or a
+ * browser history would keep it.
+ */
+const AUTH = { headers: { Authorization: `Bearer ${PSK}` } };
+const WS_PROTOCOLS = ['runos.tty.v1', `runos.psk.${PSK}`];
+
 describe('server integration', () => {
   let container: StartedTestContainer;
   let baseUrl: string;
@@ -77,8 +85,8 @@ describe('server integration', () => {
       expect(res.status).toBe(401);
     });
 
-    it('rejects requests with an invalid token', async () => {
-      const res = await fetch(`${baseUrl}/files?token=${INVALID_PSK}`);
+    it('refuses a token in the query string, even a currently valid one', async () => {
+      const res = await fetch(`${baseUrl}/files?token=${PSK}`);
       expect(res.status).toBe(401);
     });
 
@@ -97,7 +105,7 @@ describe('server integration', () => {
     });
 
     it('accepts requests with a valid token', async () => {
-      const res = await fetch(`${baseUrl}/files?token=${PSK}`);
+      const res = await fetch(`${baseUrl}/files`, AUTH);
       expect(res.status).toBe(200);
     });
   });
@@ -106,7 +114,7 @@ describe('server integration', () => {
 
   describe('GET /files', () => {
     it('lists the dev home directory by default', async () => {
-      const res = await fetch(`${baseUrl}/files?token=${PSK}`);
+      const res = await fetch(`${baseUrl}/files`, AUTH);
       expect(res.status).toBe(200);
       const body = (await res.json()) as Array<{ name: string; type: string }>;
       const names = body.map((e) => e.name);
@@ -117,7 +125,7 @@ describe('server integration', () => {
     });
 
     it('lists a subdirectory', async () => {
-      const res = await fetch(`${baseUrl}/files?token=${PSK}&dir=/home/dev/subdir`);
+      const res = await fetch(`${baseUrl}/files?dir=/home/dev/subdir`, AUTH);
       expect(res.status).toBe(200);
       const body = (await res.json()) as Array<{ name: string }>;
       expect(body).toHaveLength(1);
@@ -125,7 +133,7 @@ describe('server integration', () => {
     });
 
     it('returns correct types for files and dirs', async () => {
-      const res = await fetch(`${baseUrl}/files?token=${PSK}`);
+      const res = await fetch(`${baseUrl}/files`, AUTH);
       const body = (await res.json()) as Array<{ name: string; type: string; size: number }>;
       const file = body.find((e) => e.name === 'testfile.txt');
       const dir = body.find((e) => e.name === 'subdir');
@@ -135,12 +143,12 @@ describe('server integration', () => {
     });
 
     it('blocks path traversal', async () => {
-      const res = await fetch(`${baseUrl}/files?token=${PSK}&dir=/home/dev/../../etc`);
+      const res = await fetch(`${baseUrl}/files?dir=/home/dev/../../etc`, AUTH);
       expect(res.status).toBe(403);
     });
 
     it('returns 404 for non-existent directory', async () => {
-      const res = await fetch(`${baseUrl}/files?token=${PSK}&dir=/home/dev/nope`);
+      const res = await fetch(`${baseUrl}/files?dir=/home/dev/nope`, AUTH);
       expect(res.status).toBe(404);
     });
   });
@@ -149,14 +157,14 @@ describe('server integration', () => {
 
   describe('GET /files/content', () => {
     it('returns file content', async () => {
-      const res = await fetch(`${baseUrl}/files/content?token=${PSK}&path=/home/dev/testfile.txt`);
+      const res = await fetch(`${baseUrl}/files/content?path=/home/dev/testfile.txt`, AUTH);
       expect(res.status).toBe(200);
       const text = await res.text();
       expect(text.trim()).toBe('hello world');
     });
 
     it('returns JSON file with correct content', async () => {
-      const res = await fetch(`${baseUrl}/files/content?token=${PSK}&path=/home/dev/data.json`);
+      const res = await fetch(`${baseUrl}/files/content?path=/home/dev/data.json`, AUTH);
       expect(res.status).toBe(200);
       expect(res.headers.get('content-type')).toBe('application/json');
       const text = await res.text();
@@ -164,14 +172,12 @@ describe('server integration', () => {
     });
 
     it('blocks path traversal', async () => {
-      const res = await fetch(
-        `${baseUrl}/files/content?token=${PSK}&path=/home/dev/../../etc/passwd`,
-      );
+      const res = await fetch(`${baseUrl}/files/content?path=/home/dev/../../etc/passwd`, AUTH);
       expect(res.status).toBe(403);
     });
 
     it('returns 404 for non-existent file', async () => {
-      const res = await fetch(`${baseUrl}/files/content?token=${PSK}&path=/home/dev/nope.txt`);
+      const res = await fetch(`${baseUrl}/files/content?path=/home/dev/nope.txt`, AUTH);
       expect(res.status).toBe(404);
     });
   });
@@ -180,7 +186,7 @@ describe('server integration', () => {
 
   describe('GET /download', () => {
     it('returns a valid tar.gz archive', async () => {
-      const res = await fetch(`${baseUrl}/download?token=${PSK}&project=project/myapp`);
+      const res = await fetch(`${baseUrl}/download?project=project/myapp`, AUTH);
       expect(res.status).toBe(200);
       expect(res.headers.get('content-type')).toBe('application/gzip');
       const disposition = res.headers.get('content-disposition') || '';
@@ -194,12 +200,12 @@ describe('server integration', () => {
     });
 
     it('rejects invalid project names', async () => {
-      const res = await fetch(`${baseUrl}/download?token=${PSK}&project=../../../etc`);
+      const res = await fetch(`${baseUrl}/download?project=../../../etc`, AUTH);
       expect(res.status).toBe(403);
     });
 
     it('returns 404 for non-existent project', async () => {
-      const res = await fetch(`${baseUrl}/download?token=${PSK}&project=nonexistent`);
+      const res = await fetch(`${baseUrl}/download?project=nonexistent`, AUTH);
       expect(res.status).toBe(404);
     });
   });
@@ -213,12 +219,17 @@ describe('server integration', () => {
     });
 
     it('rejects connections with an invalid token', async () => {
-      const { code } = await connectWs(`${wsUrl}/?token=${INVALID_PSK}`);
+      const { code } = await connectWs(`${wsUrl}/`, ['runos.tty.v1', `runos.psk.${INVALID_PSK}`]);
+      expect(code).toBe(4401);
+    });
+
+    it('refuses a query token, even a currently valid one', async () => {
+      const { code } = await connectWs(`${wsUrl}/?token=${PSK}`);
       expect(code).toBe(4401);
     });
 
     it('accepts connections with a valid token and receives shell output', async () => {
-      const ws = new WebSocket(`${wsUrl}/?token=${PSK}`);
+      const ws = new WebSocket(`${wsUrl}/`, WS_PROTOCOLS);
 
       const data = await new Promise<string>((resolve, reject) => {
         let output = '';
@@ -248,7 +259,7 @@ describe('server integration', () => {
     // handshake because the part that bites is protocol-level: a server that selects NO
     // subprotocol when the client offered one makes a browser abort the connection outright.
     it('accepts a token offered as a subprotocol, with no token in the URL', async () => {
-      const ws = new WebSocket(`${wsUrl}/`, ['runos.tty.v1', `runos.psk.${PSK}`]);
+      const ws = new WebSocket(`${wsUrl}/`, WS_PROTOCOLS);
 
       const data = await new Promise<string>((resolve, reject) => {
         let output = '';
@@ -271,7 +282,7 @@ describe('server integration', () => {
     });
 
     it('selects a subprotocol, without which a browser aborts the connection', async () => {
-      const ws = new WebSocket(`${wsUrl}/`, ['runos.tty.v1', `runos.psk.${PSK}`]);
+      const ws = new WebSocket(`${wsUrl}/`, WS_PROTOCOLS);
       const selected = await new Promise<string>((resolve, reject) => {
         ws.on('open', () => {
           resolve(ws.protocol);
@@ -286,7 +297,7 @@ describe('server integration', () => {
     it('never echoes the psk back as the selected subprotocol', async () => {
       // The selection is returned in a response header. Echoing the token there would move the
       // secret from one log to another rather than out of them.
-      const ws = new WebSocket(`${wsUrl}/`, ['runos.tty.v1', `runos.psk.${PSK}`]);
+      const ws = new WebSocket(`${wsUrl}/`, WS_PROTOCOLS);
       const selected = await new Promise<string>((resolve, reject) => {
         ws.on('open', () => {
           resolve(ws.protocol);
@@ -308,7 +319,7 @@ describe('server integration', () => {
 
   describe('WebSocket terminal', () => {
     it('handles resize messages', async () => {
-      const ws = new WebSocket(`${wsUrl}/?token=${PSK}`);
+      const ws = new WebSocket(`${wsUrl}/`, WS_PROTOCOLS);
 
       await new Promise<void>((resolve, reject) => {
         ws.on('open', () => {
@@ -335,7 +346,7 @@ describe('server integration', () => {
     });
 
     it('connects as devops user when specified', async () => {
-      const ws = new WebSocket(`${wsUrl}/?token=${PSK}&user=devops`);
+      const ws = new WebSocket(`${wsUrl}/?user=devops`, WS_PROTOCOLS);
 
       const data = await new Promise<string>((resolve, reject) => {
         let output = '';
@@ -360,7 +371,7 @@ describe('server integration', () => {
     });
 
     it('uses specified working directory', async () => {
-      const ws = new WebSocket(`${wsUrl}/?token=${PSK}&dir=/home/dev/project`);
+      const ws = new WebSocket(`${wsUrl}/?dir=/home/dev/project`, WS_PROTOCOLS);
 
       const data = await new Promise<string>((resolve, reject) => {
         let output = '';

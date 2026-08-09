@@ -59,17 +59,23 @@ describe('auth', () => {
 
     it('accepts a valid token', async () => {
       const { authenticateWs } = await getAuth();
-      expect(authenticateWs(mockReq('/?token=valid-token-1'))).toBe(true);
+      expect(
+        authenticateWs(mockReq('/', { 'sec-websocket-protocol': 'runos.psk.valid-token-1' })),
+      ).toBe(true);
     });
 
     it('accepts the second valid token', async () => {
       const { authenticateWs } = await getAuth();
-      expect(authenticateWs(mockReq('/?token=valid-token-2'))).toBe(true);
+      expect(
+        authenticateWs(mockReq('/', { 'sec-websocket-protocol': 'runos.psk.valid-token-2' })),
+      ).toBe(true);
     });
 
     it('rejects an invalid token', async () => {
       const { authenticateWs } = await getAuth();
-      expect(authenticateWs(mockReq('/?token=wrong-token'))).toBe(false);
+      expect(
+        authenticateWs(mockReq('/', { 'sec-websocket-protocol': 'runos.psk.wrong-token' })),
+      ).toBe(false);
     });
 
     it('rejects when no token is provided', async () => {
@@ -83,9 +89,9 @@ describe('auth', () => {
     });
 
     // A PSK in the query string is written to the ingress access log, the browser's history and
-    // any Referer that leaks out, so the token now rides the Sec-WebSocket-Protocol header
-    // instead. The query form still works for one release so an older console keeps connecting
-    // while runostty rolls; it is scheduled for removal.
+    // any Referer that leaks out, so the token rides the Sec-WebSocket-Protocol header instead.
+    // The query form was accepted for exactly one release, to let runostty ship before the
+    // console; both are deployed, so it is now REFUSED (goal 21, O12).
     it('accepts a token offered as a websocket subprotocol', async () => {
       const { authenticateWs } = await getAuth();
       expect(
@@ -118,7 +124,12 @@ describe('auth', () => {
       );
     });
 
-    it('prefers the subprotocol token over a query one, so a stale URL cannot re-authorise', async () => {
+    it('refuses a query token even when it is a currently valid PSK', async () => {
+      const { authenticateWs } = await getAuth();
+      expect(authenticateWs(mockReq('/?token=valid-token-1'))).toBe(false);
+    });
+
+    it('refuses a query token when the subprotocol carries a wrong one', async () => {
       const { authenticateWs } = await getAuth();
       expect(
         authenticateWs(
@@ -144,7 +155,7 @@ describe('auth', () => {
       expect(selectWsSubprotocol(new Set(['runos.psk.valid-token-1']))).toBe(false);
     });
 
-    it('selects nothing when the client offered nothing, which is the legacy query path', async () => {
+    it('selects nothing when the client offered nothing, so a tokenless client cannot open', async () => {
       const { selectWsSubprotocol } = await getAuth();
       expect(selectWsSubprotocol(new Set())).toBe(false);
     });
@@ -153,32 +164,22 @@ describe('auth', () => {
   describe('authMiddleware token sources', () => {
     it('reads a bearer token from the Authorization header', async () => {
       const { extractHttpToken } = await getAuth();
-      expect(extractHttpToken('Bearer valid-token-1', undefined)).toBe('valid-token-1');
+      expect(extractHttpToken('Bearer valid-token-1')).toBe('valid-token-1');
     });
 
     it('is case-insensitive about the Bearer scheme', async () => {
       const { extractHttpToken } = await getAuth();
-      expect(extractHttpToken('bearer valid-token-1', undefined)).toBe('valid-token-1');
-    });
-
-    it('falls back to the query token for one release', async () => {
-      const { extractHttpToken } = await getAuth();
-      expect(extractHttpToken(undefined, 'valid-token-1')).toBe('valid-token-1');
-    });
-
-    it('prefers the header, so a stale query token cannot override it', async () => {
-      const { extractHttpToken } = await getAuth();
-      expect(extractHttpToken('Bearer from-header', 'from-query')).toBe('from-header');
+      expect(extractHttpToken('bearer valid-token-1')).toBe('valid-token-1');
     });
 
     it('ignores an Authorization header that is not a bearer token', async () => {
       const { extractHttpToken } = await getAuth();
-      expect(extractHttpToken('Basic abc123', undefined)).toBeNull();
+      expect(extractHttpToken('Basic abc123')).toBeNull();
     });
 
-    it('returns null when neither source carries one', async () => {
+    it('returns null when the header is absent, with no query fallback left to try', async () => {
       const { extractHttpToken } = await getAuth();
-      expect(extractHttpToken(undefined, undefined)).toBeNull();
+      expect(extractHttpToken(undefined)).toBeNull();
     });
   });
 });
