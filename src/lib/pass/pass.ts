@@ -39,6 +39,19 @@ export const PASS_PREFIX = 'runos_pass_v1';
  */
 export const MAX_TOKEN_BYTES = 4096;
 
+/**
+ * The bounds on the free text a workspace session carries.
+ *
+ * ONE LIMIT, and it is the same number at every hop. These were 1024 and 4096 here, 1024 and 4096 in
+ * the mint route, and 512 and 512 in the gate's own workspace resolver, so conductor returned 201
+ * for a pass the gate could never serve and the client got a generic refusal at CONNECT time for a
+ * request that was accepted at MINT time. Worse, a 4096-character cmd produced a token larger than
+ * MAX_TOKEN_BYTES, which every verifier then refused as malformed: conductor could mint a credential
+ * that violated its own size cap.
+ */
+export const MAX_WORKSPACE_DIR_BYTES = 512;
+export const MAX_WORKSPACE_CMD_BYTES = 512;
+
 export type PassKind = 'vm.ssh' | 'vm.serial' | 'vm.vnc' | 'ws.terminal' | 'ws.files';
 
 const VM_KINDS: ReadonlySet<string> = new Set(['vm.ssh', 'vm.serial', 'vm.vnc']);
@@ -334,7 +347,9 @@ function validateTarget(p: Record<string, unknown>): void {
   const dir: unknown = ws.dir ?? '';
   const cmd: unknown = ws.cmd ?? '';
   if (typeof dir !== 'string' || typeof cmd !== 'string') refuse(PassError.Target, "a ws target's dir and cmd are strings");
-  if (dir.length > 1024 || cmd.length > 4096) refuse(PassError.Target, "the ws target's dir or cmd is too long");
+  if (dir.length > MAX_WORKSPACE_DIR_BYTES || cmd.length > MAX_WORKSPACE_CMD_BYTES) {
+    refuse(PassError.Target, "the ws target's dir or cmd is too long");
+  }
   if (dir !== '' && !isPrintableAscii(dir)) refuse(PassError.Target, "the ws target's dir must be printable ASCII");
 }
 

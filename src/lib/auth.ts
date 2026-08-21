@@ -1,5 +1,3 @@
-import crypto from 'crypto';
-import fs from 'fs';
 import type { IncomingMessage } from 'http';
 import { createMiddleware } from 'hono/factory';
 import { resolveUser } from './users';
@@ -7,82 +5,16 @@ import { logger } from './logger';
 import type { AppEnv } from './types';
 import { authenticatePass } from './sessionPass';
 
-const PSK_FILE = process.env.PSK_FILE || '/etc/runostty/psk';
-
-/** Loads pre-shared keys from the PSK file. Returns an empty array on failure. */
-export function loadPSKs(): string[] {
-  try {
-    const content = fs.readFileSync(PSK_FILE, 'utf8').trim();
-    return content
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean);
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    logger.error({ pskFile: PSK_FILE, error: message }, 'Failed to read PSK file');
-    return [];
-  }
-}
-
-/** Timing-safe comparison of two strings. Prevents timing attacks on token validation. */
-function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) {
-    // Compare against self to keep constant time regardless of length mismatch
-    const buf = Buffer.from(a);
-    crypto.timingSafeEqual(buf, buf);
-    return false;
-  }
-  return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
-}
-
-/** Validates a token against the loaded PSKs using timing-safe comparison. */
-function validateToken(token: string): boolean {
-  const validPSKs = loadPSKs();
-  if (validPSKs.length === 0) {
-    logger.error('No PSKs loaded — rejecting connection');
-    return false;
-  }
-  return validPSKs.some((psk) => timingSafeEqual(token, psk));
-}
-
 /**
- * Where the PSK travels.
+ * The subprotocol the server selects, so the browser sees its offer accepted.
  *
- * A secret in a query string is written down in several places nobody thinks about at the time:
- * the ingress access log, the browser's own history, and any `Referer` a page leaks. So the
- * token rides a header on both transports: `Sec-WebSocket-Protocol` for the websocket (the only
- * header a browser's WebSocket constructor can influence) and `Authorization: Bearer` for the
- * HTTP endpoints.
- *
- * The query form was accepted for exactly one release, so runostty could ship before the console
- * without breaking every terminal in between. Both are deployed and no client sends one, so it is
- * now REFUSED: while it stood it was the whole of the remaining exposure, since nothing stopped a
- * new caller being written that way.
+ * THE PRE-SHARED KEY IS GONE FROM THIS FILE ENTIRELY. loadPSKs, validateToken, the timing-safe
+ * comparison and the psk subprotocol reader were all removed with it: a workspace is reached only
+ * through the session gate now, which forwards a signed pass, and dead code that reads like a live
+ * authentication path is worse than no code, because the next person to touch this file has to work
+ * out which of the two is real.
  */
-
-/** The subprotocol that carries the PSK. Offered by the client, never echoed back. */
-const PSK_PROTOCOL_PREFIX = 'runos.psk.';
-
-/** The subprotocol the server selects, so the browser sees its offer accepted. */
 const TTY_PROTOCOL = 'runos.tty.v1';
-
-/**
- * Pull the PSK out of a websocket upgrade.
- *
- * The offered subprotocol list is the only place it may be. A token in the URL is ignored
- * entirely rather than tried as a second chance, so nothing can put a live credential back into
- * an access log by reverting a client.
- */
-function extractWsToken(req: IncomingMessage): string | null {
-  const offered = req.headers?.['sec-websocket-protocol'];
-  const list = (Array.isArray(offered) ? offered.join(',') : offered || '')
-    .split(',')
-    .map((p) => p.trim())
-    .filter(Boolean);
-
-  const psk = list.find((p) => p.startsWith(PSK_PROTOCOL_PREFIX));
-  return psk ? psk.slice(PSK_PROTOCOL_PREFIX.length) || null : null;
-}
 
 /**
  * Authenticates a WebSocket upgrade request.
@@ -147,17 +79,40 @@ export function extractHttpToken(authorization: string | undefined): string | nu
 }
 
 /** Hono middleware that validates the PSK token and resolves the user context. */
+/**
+ * The HTTP file endpoints, authenticated by a SESSION PASS rather than a shared key.
+ *
+ * Same reasoning as the websocket path: the pre-shared key opened one workspace for an hour to
+ * whoever held it, and it had to be readable by whatever wanted to reach the workspace. A pass names
+ * one person and one workspace, lives five minutes for this kind, and is verified HERE because this
+ * is the only party that knows whose workspace this is.
+ *
+ * THE LOGIN COMES FROM THE SIGNED PASS, not from ?user=. It used to come from the query string,
+ * which meant anything that could reach this port could read another login's home directory even
+ * though it could not have minted the pass.
+ */
 export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
   const token = extractHttpToken(c.req.header('authorization'));
   if (!token) {
     return c.json({ error: 'Unauthorized' }, 401);
   }
 
-  if (!validateToken(token)) {
+  const result = authenticatePass([`runos.pass.${token}`], Math.floor(Date.now() / 1000));
+  if (!result.ok) {
+    // The reason stays in the workspace's own log. The caller gets 401 and nothing else: distinct
+    // messages would tell a prober which guess was closer.
+    logger.warn({ reason: result.reason }, 'Session pass refused on a file request');
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
+  if (result.payload?.kind !== 'ws.files') {
+    // A terminal pass must not read files. Both are workspace kinds and both name this workspace,
+    // but they are different grants with different lifetimes, and the gate serves them at different
+    // doors.
+    logger.warn({ kind: result.payload?.kind }, 'A non-file pass was presented to a file endpoint');
     return c.json({ error: 'Unauthorized' }, 401);
   }
 
-  const userParam = c.req.query('user') || 'dev';
+  const userParam = result.payload.ws?.user || 'dev';
   c.set('userCfg', resolveUser(userParam));
   c.set('userName', userParam);
   await next();

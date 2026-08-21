@@ -27,31 +27,14 @@ describe('auth', () => {
     return await import('../lib/auth');
   }
 
-  describe('loadPSKs', () => {
-    it('loads tokens from file', async () => {
-      const { loadPSKs } = await getAuth();
-      const psks = loadPSKs();
-      expect(psks).toEqual(['valid-token-1', 'valid-token-2']);
-    });
-
-    it('trims whitespace and skips empty lines', async () => {
-      fs.writeFileSync(pskFile, '  token-a  \n\n  token-b  \n\n');
-      const { loadPSKs } = await getAuth();
-      const psks = loadPSKs();
-      expect(psks).toEqual(['token-a', 'token-b']);
-      // Restore
-      fs.writeFileSync(pskFile, 'valid-token-1\nvalid-token-2\n');
-    });
-
-    it('returns empty array when file is missing', async () => {
-      process.env.PSK_FILE = path.join(tmpDir, 'nonexistent');
-      const { loadPSKs } = await getAuth();
-      const psks = loadPSKs();
-      expect(psks).toEqual([]);
-      process.env.PSK_FILE = pskFile;
-    });
-  });
-
+  /*
+   * loadPSKs, validateToken and the timing-safe comparison were REMOVED with the pre-shared key
+   * itself, and their tests went with them rather than being kept passing against dead code.
+   *
+   * What replaced them is covered in src/lib/sessionPass.test.ts (the workspace's own admission
+   * check) and src/lib/pass/vectors.test.ts (the 70 shared golden vectors that hold this verifier to
+   * the same verdicts as the gate's and the control plane's).
+   */
   describe('authenticateWs', () => {
     /*
      * THE PSK IS GONE FROM THIS PATH, so these tests changed shape rather than being deleted.
