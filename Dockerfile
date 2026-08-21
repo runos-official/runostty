@@ -72,7 +72,21 @@ RUN npm install && npm run build && rm -rf src && npm prune --omit=dev
 RUN mkdir -p /etc/runostty
 
 # Add CLI tool paths to system-wide PATH (survives PVC mount)
-RUN echo 'export PATH="$HOME/.local/bin:$HOME/.opencode/bin:$PATH"' > /etc/profile.d/runostty-path.sh \
+#
+# THE devops TOOLING HAS TO BE HERE, not only in ~/.bashrc. MEASURED 2026-08-21: `.bashrc` opens
+# with the standard `case $- in *i*) ;; *) return;; esac` guard, so a NON-INTERACTIVE shell returns
+# before ever reaching the PATH line further down it. A terminal session is interactive and found
+# kubectl; a one-off command (`runos shell -- kubectl get nodes`, and anything else that runs
+# `bash --login -c`) got "kubectl: command not found" while the binary sat in /opt/devops/bin.
+#
+# The devops-only intent is kept: the extra directory is added for that user and nobody else, so
+# `dev` still does not get cluster tooling on its PATH.
+RUN printf '%s\n' \
+        'export PATH="$HOME/.local/bin:$HOME/.opencode/bin:$PATH"' \
+        'if [ "$(id -un)" = "devops" ] && [ -d /opt/devops/bin ]; then' \
+        '    export PATH="/opt/devops/bin:$PATH"' \
+        'fi' \
+        > /etc/profile.d/runostty-path.sh \
     && chmod +x /etc/profile.d/runostty-path.sh \
     && echo 'export PATH="$HOME/.local/bin:$HOME/.opencode/bin:$PATH"' >> /etc/bash.bashrc
 
