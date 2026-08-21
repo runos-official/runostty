@@ -75,7 +75,12 @@ export function handleConnection(ws: WebSocket, req: IncomingMessage): void {
   // Client can pass a base64-encoded command to run on session start
   if (cmdParam) {
     const cmd = Buffer.from(cmdParam, 'base64').toString('utf8');
-    logger.info({ user: userParam, cmd }, 'Init command received');
+    // THE COMMAND ITSELF IS NEVER LOGGED. A one-off command is exactly where a secret rides:
+    // `kubectl create secret ... --from-literal=password=...`, a connection string, a token. pino
+    // writes to stdout, so logging it puts that secret in the container log and in whatever
+    // collects cluster logs, readable by anything with cluster credentials. Its length is enough
+    // to tell an empty request from a real one.
+    logger.info({ user: userParam, cmdLen: cmd.length }, 'Init command received');
     shellArgs = ['--login', '-c', `${cmd}; exec bash --login`];
   }
 
