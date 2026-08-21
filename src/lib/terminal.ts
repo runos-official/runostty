@@ -5,6 +5,7 @@ import type { IncomingMessage } from 'http';
 import { resolveUser } from './users';
 import { safePath } from './pathguard';
 import { logger } from './logger';
+import { verifiedPassFor } from './auth';
 
 /** Maximum allowed WebSocket message size (1MB). */
 const MAX_MESSAGE_SIZE = 1024 * 1024;
@@ -48,12 +49,27 @@ function validateResize(cols: unknown, rows: unknown): { cols: number; rows: num
  * and init command support. Manages bidirectional data flow and cleanup.
  */
 export function handleConnection(ws: WebSocket, req: IncomingMessage): void {
-  const params = new URL(req.url || '', 'http://localhost').searchParams;
-  const userParam = params.get('user') || 'dev';
+  /*
+   * WHICH USER, WHICH DIRECTORY AND WHICH COMMAND COME FROM THE SIGNED PASS, NOT THE QUERY STRING.
+   *
+   * They used to come from the URL, which was reasonable when the only way to reach this port was
+   * through a hostname behind a shared secret: whoever had the secret had the workspace anyway. It
+   * is not reasonable now. The pass names one person and one workspace, and if the session's
+   * parameters still came from the URL then anything that could reach port 7681 could pick the
+   * login and the working directory even though it could not have minted the pass.
+   *
+   * The query string is IGNORED rather than used as a fallback. A fallback is a second way in that
+   * nothing tests, and it would quietly become the only way in the day a pass stopped carrying a
+   * field.
+   */
+  const verified = verifiedPassFor(req);
+  const ws_ = verified.ok ? verified.payload?.ws : undefined;
+
+  const userParam = ws_?.user || 'dev';
   const userCfg = resolveUser(userParam);
 
-  const requestedDir = params.get('dir') || userCfg.home;
-  const cmdParam = params.get('cmd');
+  const requestedDir = ws_?.dir || userCfg.home;
+  const cmdParam = ws_?.cmd ? Buffer.from(ws_.cmd, 'utf8').toString('base64') : null;
 
   // Validate the working directory stays within the user's home
   const dir = safePath(requestedDir, userCfg.home) || userCfg.home;

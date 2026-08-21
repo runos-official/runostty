@@ -53,22 +53,35 @@ describe('auth', () => {
   });
 
   describe('authenticateWs', () => {
+    /*
+     * THE PSK IS GONE FROM THIS PATH, so these tests changed shape rather than being deleted.
+     *
+     * A workspace used to be reached at its own public hostname behind a shared secret that rotated
+     * hourly. It is now reached only through the in-cluster session gate, which forwards the
+     * caller's signed session pass. Every assertion below that used to prove "this PSK opens a
+     * session" now proves the stronger thing: a PSK does NOT, and only a pass minted for THIS
+     * workspace does.
+     *
+     * The verification itself is covered in src/lib/sessionPass.test.ts and by the 67 shared golden
+     * vectors in src/lib/pass/vectors.test.ts. These are about the wiring.
+     */
     function mockReq(url: string, headers: Record<string, string> = {}): IncomingMessage {
       return { url, headers } as unknown as IncomingMessage;
     }
 
-    it('accepts a valid token', async () => {
+    it('REFUSES a pre-shared key, which used to be the way in', async () => {
       const { authenticateWs } = await getAuth();
-      expect(
-        authenticateWs(mockReq('/', { 'sec-websocket-protocol': 'runos.psk.valid-token-1' })),
-      ).toBe(true);
-    });
-
-    it('accepts the second valid token', async () => {
-      const { authenticateWs } = await getAuth();
-      expect(
-        authenticateWs(mockReq('/', { 'sec-websocket-protocol': 'runos.psk.valid-token-2' })),
-      ).toBe(true);
+      for (const offered of [
+        'runos.psk.valid-token-1',
+        'runos.psk.valid-token-2',
+        'runos.tty.v1, runos.psk.valid-token-1',
+        'runos.psk.valid-token-1,runos.tty.v1',
+      ]) {
+        expect(
+          authenticateWs(mockReq('/', { 'sec-websocket-protocol': offered })),
+          `a PSK must no longer open a session: ${offered}`,
+        ).toBe(false);
+      }
     });
 
     it('rejects an invalid token', async () => {
@@ -78,66 +91,38 @@ describe('auth', () => {
       ).toBe(false);
     });
 
-    it('rejects when no token is provided', async () => {
+    it('rejects when nothing is offered', async () => {
       const { authenticateWs } = await getAuth();
       expect(authenticateWs(mockReq('/'))).toBe(false);
-    });
-
-    it('rejects when URL is empty', async () => {
-      const { authenticateWs } = await getAuth();
       expect(authenticateWs(mockReq(''))).toBe(false);
+      expect(authenticateWs(mockReq('/', { 'sec-websocket-protocol': 'runos.tty.v1' }))).toBe(false);
     });
 
-    // A PSK in the query string is written to the ingress access log, the browser's history and
-    // any Referer that leaks out, so the token rides the Sec-WebSocket-Protocol header instead.
-    // The query form was accepted for exactly one release, to let runostty ship before the
-    // console; both are deployed, so it is now REFUSED (goal 21, O12).
-    it('accepts a token offered as a websocket subprotocol', async () => {
+    it('rejects a pass-shaped subprotocol carrying nothing verifiable', async () => {
       const { authenticateWs } = await getAuth();
-      expect(
-        authenticateWs(
-          mockReq('/', { 'sec-websocket-protocol': 'runos.tty.v1, runos.psk.valid-token-1' }),
-        ),
-      ).toBe(true);
+      for (const offered of [
+        'runos.pass.',
+        'runos.pass.not-a-pass',
+        'runos.pass.runos_pass_v1.bm90anNvbg.AAAA',
+      ]) {
+        expect(
+          authenticateWs(mockReq('/', { 'sec-websocket-protocol': offered })),
+          offered,
+        ).toBe(false);
+      }
     });
 
-    it('accepts the subprotocol token whatever order it is offered in', async () => {
-      const { authenticateWs } = await getAuth();
-      expect(
-        authenticateWs(
-          mockReq('/', { 'sec-websocket-protocol': 'runos.psk.valid-token-1,runos.tty.v1' }),
-        ),
-      ).toBe(true);
-    });
-
-    it('rejects a wrong token offered as a subprotocol', async () => {
-      const { authenticateWs } = await getAuth();
-      expect(
-        authenticateWs(mockReq('/', { 'sec-websocket-protocol': 'runos.psk.wrong-token' })),
-      ).toBe(false);
-    });
-
-    it('rejects when the subprotocol list carries no psk entry', async () => {
-      const { authenticateWs } = await getAuth();
-      expect(authenticateWs(mockReq('/', { 'sec-websocket-protocol': 'runos.tty.v1' }))).toBe(
-        false,
-      );
-    });
-
-    it('refuses a query token even when it is a currently valid PSK', async () => {
+    /*
+     * A TOKEN IN THE URL IS STILL IGNORED ENTIRELY, and this outlives the PSK it was written for.
+     * Nothing may put a live credential back into an access log by reverting a client.
+     */
+    it('never reads a credential from the query string', async () => {
       const { authenticateWs } = await getAuth();
       expect(authenticateWs(mockReq('/?token=valid-token-1'))).toBe(false);
-    });
-
-    it('refuses a query token when the subprotocol carries a wrong one', async () => {
-      const { authenticateWs } = await getAuth();
-      expect(
-        authenticateWs(
-          mockReq('/?token=valid-token-1', { 'sec-websocket-protocol': 'runos.psk.wrong-token' }),
-        ),
-      ).toBe(false);
+      expect(authenticateWs(mockReq('/?pass=runos_pass_v1.x.y'))).toBe(false);
     });
   });
+
 
   describe('selectWsSubprotocol', () => {
     // The browser aborts a websocket whose server answers with no subprotocol when the client
