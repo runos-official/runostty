@@ -1,9 +1,9 @@
 #!/bin/bash
 set -e
 
-# On fresh PVC, /home/dev will be empty. Restore from skeleton.
+# The home is an emptyDir, so it starts empty on every pod (re)start. Restore from skeleton.
 if [ ! -f /home/dev/.bashrc ]; then
-    echo "Fresh PVC detected — setting up /home/dev from skeleton..."
+    echo "Fresh home detected, setting up /home/dev from skeleton..."
     cp -a /opt/runostty-skel/. /home/dev/
     chown -R dev:dev /home/dev
 fi
@@ -15,7 +15,7 @@ chown -R dev:dev /home/dev/.local /home/dev/.opencode 2>/dev/null || true
 
 # devops user — same skeleton pattern as dev
 if [ ! -f /home/devops/.bashrc ]; then
-    echo "Fresh devops PVC detected — setting up /home/devops from skeleton..."
+    echo "Fresh devops home detected, setting up /home/devops from skeleton..."
     cp -a /opt/runostty-skel-devops/. /home/devops/
     chown -R devops:devops /home/devops
 fi
