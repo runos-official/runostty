@@ -78,7 +78,9 @@ describe('auth', () => {
       const { authenticateWs } = await getAuth();
       expect(authenticateWs(mockReq('/'))).toBe(false);
       expect(authenticateWs(mockReq(''))).toBe(false);
-      expect(authenticateWs(mockReq('/', { 'sec-websocket-protocol': 'runos.tty.v1' }))).toBe(false);
+      expect(authenticateWs(mockReq('/', { 'sec-websocket-protocol': 'runos.tty.v1' }))).toBe(
+        false,
+      );
     });
 
     it('rejects a pass-shaped subprotocol carrying nothing verifiable', async () => {
@@ -88,10 +90,9 @@ describe('auth', () => {
         'runos.pass.not-a-pass',
         'runos.pass.runos_pass_v1.bm90anNvbg.AAAA',
       ]) {
-        expect(
-          authenticateWs(mockReq('/', { 'sec-websocket-protocol': offered })),
-          offered,
-        ).toBe(false);
+        expect(authenticateWs(mockReq('/', { 'sec-websocket-protocol': offered })), offered).toBe(
+          false,
+        );
       }
     });
 
@@ -105,7 +106,6 @@ describe('auth', () => {
       expect(authenticateWs(mockReq('/?pass=runos_pass_v1.x.y'))).toBe(false);
     });
   });
-
 
   describe('selectWsSubprotocol', () => {
     // The browser aborts a websocket whose server answers with no subprotocol when the client

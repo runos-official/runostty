@@ -55,7 +55,13 @@ class Parser {
   }
 
   skipWhitespace(): void {
-    while (this.i < this.s.length && (this.s[this.i] === ' ' || this.s[this.i] === '\t' || this.s[this.i] === '\n' || this.s[this.i] === '\r')) {
+    while (
+      this.i < this.s.length &&
+      (this.s[this.i] === ' ' ||
+        this.s[this.i] === '\t' ||
+        this.s[this.i] === '\n' ||
+        this.s[this.i] === '\r')
+    ) {
       this.i++;
     }
   }
@@ -144,14 +150,30 @@ class Parser {
         const e = this.s[this.i];
         this.i++;
         switch (e) {
-          case '"': out += '"'; break;
-          case '\\': out += '\\'; break;
-          case '/': out += '/'; break;
-          case 'b': out += '\b'; break;
-          case 'f': out += '\f'; break;
-          case 'n': out += '\n'; break;
-          case 'r': out += '\r'; break;
-          case 't': out += '\t'; break;
+          case '"':
+            out += '"';
+            break;
+          case '\\':
+            out += '\\';
+            break;
+          case '/':
+            out += '/';
+            break;
+          case 'b':
+            out += '\b';
+            break;
+          case 'f':
+            out += '\f';
+            break;
+          case 'n':
+            out += '\n';
+            break;
+          case 'r':
+            out += '\r';
+            break;
+          case 't':
+            out += '\t';
+            break;
           case 'u': {
             const hex = this.s.slice(this.i, this.i + 4);
             if (!/^[0-9a-fA-F]{4}$/.test(hex)) throw new StrictJsonError('bad unicode escape');
@@ -174,7 +196,7 @@ class Parser {
   private parseNumber(path: string): number {
     const start = this.i;
     if (this.s[this.i] === '-') this.i++;
-    while (this.i < this.s.length && /[0-9eE+.\-]/.test(this.s[this.i])) this.i++;
+    while (this.i < this.s.length && /[0-9eE+.-]/.test(this.s[this.i])) this.i++;
     const literal = this.s.slice(start, this.i);
     if (literal === '' || !/^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$/.test(literal)) {
       throw new StrictJsonError('malformed number');
@@ -186,7 +208,11 @@ class Parser {
   }
 
   private parseLiteral(): boolean | null {
-    for (const [word, value] of [['true', true], ['false', false], ['null', null]] as const) {
+    for (const [word, value] of [
+      ['true', true],
+      ['false', false],
+      ['null', null],
+    ] as const) {
       if (this.s.startsWith(word, this.i)) {
         this.i += word.length;
         return value;

@@ -24,7 +24,12 @@
  * way this shape gets broken.
  */
 
-import { createPrivateKey, createPublicKey, sign as nodeSign, verify as nodeVerify } from 'node:crypto';
+import {
+  createPrivateKey,
+  createPublicKey,
+  sign as nodeSign,
+  verify as nodeVerify,
+} from 'node:crypto';
 import { parseStrictObject, StrictJsonError } from './strictJson';
 
 export const PASS_PREFIX = 'runos_pass_v1';
@@ -62,8 +67,17 @@ export function maxLifetimeSeconds(kind: string): number {
   return kind === 'ws.files' ? 300 : 60;
 }
 
-export interface VMTarget { ns: string; name: string }
-export interface WSTarget { svc: string; uid: string; user: string; dir: string; cmd: string }
+export interface VMTarget {
+  ns: string;
+  name: string;
+}
+export interface WSTarget {
+  svc: string;
+  uid: string;
+  user: string;
+  dir: string;
+  cmd: string;
+}
 
 export interface PassPayload {
   v: number;
@@ -99,7 +113,10 @@ export const PassError = {
 export type PassErrorCode = (typeof PassError)[keyof typeof PassError];
 
 export class PassRefusal extends Error {
-  constructor(readonly code: PassErrorCode, reason: string) {
+  constructor(
+    readonly code: PassErrorCode,
+    reason: string,
+  ) {
     super(`${code}: ${reason}`);
     this.name = 'PassRefusal';
   }
@@ -177,15 +194,22 @@ export interface VerifyOptions {
 export function verifyPass(token: string, opts: VerifyOptions): PassPayload {
   // Size first, before the split and long before any crypto: the cheapest check goes first.
   if (Buffer.byteLength(token, 'utf8') > MAX_TOKEN_BYTES) {
-    refuse(PassError.Malformed, `a pass is at most ${MAX_TOKEN_BYTES} bytes, this is ${Buffer.byteLength(token, 'utf8')}`);
+    refuse(
+      PassError.Malformed,
+      `a pass is at most ${MAX_TOKEN_BYTES} bytes, this is ${Buffer.byteLength(token, 'utf8')}`,
+    );
   }
   const segments = token.split('.');
   if (segments.length !== 3) {
-    refuse(PassError.Malformed, `a pass has exactly three dot-separated segments, this has ${segments.length}`);
+    refuse(
+      PassError.Malformed,
+      `a pass has exactly three dot-separated segments, this has ${segments.length}`,
+    );
   }
   const [prefix, payloadSegment, signatureSegment] = segments;
   if (prefix !== PASS_PREFIX) refuse(PassError.Malformed, `a pass starts with "${PASS_PREFIX}"`);
-  if (payloadSegment === '' || signatureSegment === '') refuse(PassError.Malformed, 'a pass has no empty segments');
+  if (payloadSegment === '' || signatureSegment === '')
+    refuse(PassError.Malformed, 'a pass has no empty segments');
 
   const signature = b64urlDecodeStrict(signatureSegment);
   if (signature.length !== 64) {
@@ -214,7 +238,10 @@ export function verifyPass(token: string, opts: VerifyOptions): PassPayload {
     type: 'spki',
   });
   if (!nodeVerify(null, signed, publicKey, signature)) {
-    refuse(PassError.BadSignature, `the signature does not verify under key "${safeEcho(parsed.kid)}"`);
+    refuse(
+      PassError.BadSignature,
+      `the signature does not verify under key "${safeEcho(parsed.kid)}"`,
+    );
   }
 
   // Everything past this line is trusted bytes.
@@ -222,7 +249,18 @@ export function verifyPass(token: string, opts: VerifyOptions): PassPayload {
   return parsed as unknown as PassPayload;
 }
 
-const REQUIRED_FIELDS = ['v', 'kid', 'jti', 'iat', 'exp', 'aid', 'cid', 'sub', 'kind', 'org'] as const;
+const REQUIRED_FIELDS = [
+  'v',
+  'kid',
+  'jti',
+  'iat',
+  'exp',
+  'aid',
+  'cid',
+  'sub',
+  'kind',
+  'org',
+] as const;
 const ALLOWED_FIELDS: ReadonlySet<string> = new Set([...REQUIRED_FIELDS, 'vm', 'ws']);
 const VM_FIELDS: ReadonlySet<string> = new Set(['ns', 'name']);
 const WS_FIELDS: ReadonlySet<string> = new Set(['svc', 'uid', 'user', 'dir', 'cmd']);
@@ -250,14 +288,18 @@ function readPayload(body: Buffer): RawPayload {
   for (const key of REQUIRED_FIELDS) {
     if (!(key in value)) refuse(PassError.Payload, `${key} is required`);
   }
-  for (const [block, allowed] of [['vm', VM_FIELDS], ['ws', WS_FIELDS]] as const) {
+  for (const [block, allowed] of [
+    ['vm', VM_FIELDS],
+    ['ws', WS_FIELDS],
+  ] as const) {
     const target = value[block];
     if (target === undefined) continue;
     if (typeof target !== 'object' || target === null || Array.isArray(target)) {
       refuse(PassError.Payload, `${block} is an object`);
     }
     for (const key of Object.keys(target as Record<string, unknown>)) {
-      if (!allowed.has(key)) refuse(PassError.Payload, `"${safeEcho(key)}" is not a ${block} field`);
+      if (!allowed.has(key))
+        refuse(PassError.Payload, `"${safeEcho(key)}" is not a ${block} field`);
     }
   }
 
@@ -266,21 +308,29 @@ function readPayload(body: Buffer): RawPayload {
   // "1755800060" is refused here and was ACCEPTED by Go until the shared vectors caught it.
   for (const field of ['iat', 'exp'] as const) {
     const literal = strict.numberLiterals.get(field);
-    if (literal === undefined) refuse(PassError.Payload, `${field} must be a whole number of seconds`);
-    if (!/^-?(0|[1-9][0-9]*)$/.test(literal)) refuse(PassError.Payload, `${field} must be a whole number of seconds`);
-    if (!Number.isSafeInteger(Number(literal))) refuse(PassError.Payload, `${field} is out of range`);
+    if (literal === undefined)
+      refuse(PassError.Payload, `${field} must be a whole number of seconds`);
+    if (!/^-?(0|[1-9][0-9]*)$/.test(literal))
+      refuse(PassError.Payload, `${field} must be a whole number of seconds`);
+    if (!Number.isSafeInteger(Number(literal)))
+      refuse(PassError.Payload, `${field} is out of range`);
   }
 
   return value as RawPayload;
 }
 
 function validate(p: Record<string, unknown>, opts: VerifyOptions): void {
-  if (p.v !== 1) refuse(PassError.Payload, `this is a version ${String(p.v)} pass and this reader handles version 1`);
+  if (p.v !== 1)
+    refuse(
+      PassError.Payload,
+      `this is a version ${String(p.v)} pass and this reader handles version 1`,
+    );
   if (!isLowerHex(p.jti, 32)) refuse(PassError.Payload, 'jti is 32 lowercase hex characters');
 
   for (const field of ['aid', 'cid', 'sub', 'org'] as const) {
     const value = p[field];
-    if (typeof value !== 'string' || value === '') refuse(PassError.Payload, `${field} is required`);
+    if (typeof value !== 'string' || value === '')
+      refuse(PassError.Payload, `${field} is required`);
     if (!isPrintableAscii(value as string)) {
       // Homoglyphs and unicode normalisation are a real path to one identity being two strings.
       refuse(PassError.Payload, `${field} must be printable ASCII`);
@@ -296,7 +346,8 @@ function validate(p: Record<string, unknown>, opts: VerifyOptions): void {
   if (exp <= iat) refuse(PassError.Lifetime, 'exp must be after iat');
   const life = exp - iat;
   const cap = maxLifetimeSeconds(p.kind as string);
-  if (life > cap) refuse(PassError.Lifetime, `a ${p.kind} pass may live ${cap}s, this one claims ${life}s`);
+  if (life > cap)
+    refuse(PassError.Lifetime, `a ${p.kind} pass may live ${cap}s, this one claims ${life}s`);
 
   if (opts.now > exp + opts.skewSeconds) refuse(PassError.Expired, 'this pass expired');
   if (opts.now < iat - opts.skewSeconds) refuse(PassError.Expired, 'this pass is not valid yet');
@@ -317,8 +368,10 @@ function validateTarget(p: Record<string, unknown>): void {
   const hasWS = p.ws !== undefined;
   const isVM = VM_KINDS.has(p.kind as string);
 
-  if (hasVM && hasWS) refuse(PassError.Target, 'a pass carries exactly one target, this has both vm and ws');
-  if (!hasVM && !hasWS) refuse(PassError.Target, 'a pass carries a target, this has neither vm nor ws');
+  if (hasVM && hasWS)
+    refuse(PassError.Target, 'a pass carries exactly one target, this has both vm and ws');
+  if (!hasVM && !hasWS)
+    refuse(PassError.Target, 'a pass carries a target, this has neither vm nor ws');
   if (isVM && !hasVM) refuse(PassError.Target, `a ${p.kind} pass carries a vm target`);
   if (!isVM && !hasWS) refuse(PassError.Target, `a ${p.kind} pass carries a ws target`);
 
@@ -338,19 +391,23 @@ function validateTarget(p: Record<string, unknown>): void {
 
   const ws = p.ws as Record<string, unknown>;
   for (const field of ['svc', 'uid', 'user'] as const) {
-    if (typeof ws[field] !== 'string' || ws[field] === '') refuse(PassError.Target, 'a ws target names svc, uid and user');
+    if (typeof ws[field] !== 'string' || ws[field] === '')
+      refuse(PassError.Target, 'a ws target names svc, uid and user');
   }
-  if (!isK8sName(ws.svc as string)) refuse(PassError.Target, `"${safeEcho(String(ws.svc))}" is not a workspace service name`);
+  if (!isK8sName(ws.svc as string))
+    refuse(PassError.Target, `"${safeEcho(String(ws.svc))}" is not a workspace service name`);
   if (!isPrintableAscii(ws.uid as string) || !isPrintableAscii(ws.user as string)) {
     refuse(PassError.Target, "a ws target's uid and user must be printable ASCII");
   }
   const dir: unknown = ws.dir ?? '';
   const cmd: unknown = ws.cmd ?? '';
-  if (typeof dir !== 'string' || typeof cmd !== 'string') refuse(PassError.Target, "a ws target's dir and cmd are strings");
+  if (typeof dir !== 'string' || typeof cmd !== 'string')
+    refuse(PassError.Target, "a ws target's dir and cmd are strings");
   if (dir.length > MAX_WORKSPACE_DIR_BYTES || cmd.length > MAX_WORKSPACE_CMD_BYTES) {
     refuse(PassError.Target, "the ws target's dir or cmd is too long");
   }
-  if (dir !== '' && !isPrintableAscii(dir)) refuse(PassError.Target, "the ws target's dir must be printable ASCII");
+  if (dir !== '' && !isPrintableAscii(dir))
+    refuse(PassError.Target, "the ws target's dir must be printable ASCII");
 }
 
 // --- shapes -----------------------------------------------------------------------------------

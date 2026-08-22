@@ -34,14 +34,18 @@ const PASS_PROTOCOL_PREFIX = 'runos.pass.';
  * container as a changed file with no restart, and a key cached at startup would make a rotation
  * look like every session suddenly failing its signature.
  */
-export function loadGateKeys(path = process.env.GATE_KEYS_FILE || '/etc/runostty/gate-keys'): Map<string, Buffer> {
+export function loadGateKeys(
+  path = process.env.GATE_KEYS_FILE || '/etc/runostty/gate-keys',
+): Map<string, Buffer> {
   const keys = new Map<string, Buffer>();
   let content: string;
   try {
     content = fs.readFileSync(path, 'utf8');
   } catch (err) {
-    logger.error({ path, error: err instanceof Error ? err.message : String(err) },
-      'Cannot read the session gate public keys');
+    logger.error(
+      { path, error: err instanceof Error ? err.message : String(err) },
+      'Cannot read the session gate public keys',
+    );
     return keys;
   }
   for (const entry of content.split(/[\n,]/)) {
@@ -94,7 +98,7 @@ export function authenticatePass(
   offeredSubprotocols: string[],
   now: number,
   identity: WorkspaceIdentity = workspaceIdentity(),
-  keys: Map<string, Buffer> = loadGateKeys()
+  keys: Map<string, Buffer> = loadGateKeys(),
 ): PassAuthResult {
   if (!identity.svc || !identity.uid) {
     // A workspace that does not know who it belongs to cannot check anything, so it admits nobody.
@@ -126,7 +130,10 @@ export function authenticatePass(
   if (!payload.ws) return { ok: false, reason: 'the pass carries no workspace target' };
 
   if (payload.ws.svc !== identity.svc) {
-    return { ok: false, reason: `the pass names workspace ${payload.ws.svc}, this is ${identity.svc}` };
+    return {
+      ok: false,
+      reason: `the pass names workspace ${payload.ws.svc}, this is ${identity.svc}`,
+    };
   }
   // Compared on the RAW uid, never the service name. The service name is lowercased, so two uids
   // differing only in case share one, and comparing names would let either of those people into the

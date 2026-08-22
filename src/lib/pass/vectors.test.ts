@@ -19,7 +19,13 @@ interface VectorFile {
   publicKeyB64url: string;
   nowUnix: number;
   skewSeconds: number;
-  vectors: { name: string; why: string; token: string; expect: string; payload?: Record<string, unknown> }[];
+  vectors: {
+    name: string;
+    why: string;
+    token: string;
+    expect: string;
+    payload?: Record<string, unknown>;
+  }[];
 }
 
 const file = JSON.parse(readFileSync(VECTORS, 'utf8')) as VectorFile;
@@ -53,14 +59,17 @@ describe('the session pass verifier agrees with the gate and the control plane',
       } catch (error) {
         refusal = error;
       }
-      expect(refusal, `expected ${v.expect} (${v.why}), the pass was ACCEPTED`).toBeInstanceOf(PassRefusal);
+      expect(refusal, `expected ${v.expect} (${v.why}), the pass was ACCEPTED`).toBeInstanceOf(
+        PassRefusal,
+      );
       expect((refusal as PassRefusal).code, v.why).toBe(v.expect);
     });
   }
 
   it('exercises every refusal code it defines', () => {
     const used = new Set(file.vectors.filter((v) => v.expect !== 'valid').map((v) => v.expect));
-    for (const code of Object.values(PassError)) expect(used, `no vector produces ${code}`).toContain(code);
+    for (const code of Object.values(PassError))
+      expect(used, `no vector produces ${code}`).toContain(code);
   });
 
   it('has not drifted from the gate repo', () => {

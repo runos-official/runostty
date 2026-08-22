@@ -14,25 +14,36 @@ import { signPass, type PassPayload } from './pass/pass';
  * the way would be the gate's routing.
  */
 
-const file = JSON.parse(
-  readFileSync(resolve(__dirname, 'pass/testdata/passes.json'), 'utf8')
-) as { kid: string; publicKeyB64url: string; privateKeySeedB64url: string; nowUnix: number };
+const file = JSON.parse(readFileSync(resolve(__dirname, 'pass/testdata/passes.json'), 'utf8')) as {
+  kid: string;
+  publicKeyB64url: string;
+  privateKeySeedB64url: string;
+  nowUnix: number;
+};
 
 const seed = Buffer.from(file.privateKeySeedB64url, 'base64url');
 const privateKeyPem = createPrivateKey({
   key: Buffer.concat([Buffer.from('302e020100300506032b657004220420', 'hex'), seed]),
   format: 'der',
   type: 'pkcs8',
-}).export({ format: 'pem', type: 'pkcs8' }).toString();
+})
+  .export({ format: 'pem', type: 'pkcs8' })
+  .toString();
 
 const keys = new Map([[file.kid, Buffer.from(file.publicKeyB64url, 'base64url')]]);
 const IDENTITY = { svc: 'runostty-gk2xq7m', uid: 'GK2xQ7mUeZbN4hVt0pLrYcSd3fA1' };
 
 function pass(mutate?: (p: PassPayload) => void): string {
   const p: PassPayload = {
-    v: 1, kid: file.kid, jti: '0123456789abcdef0123456789abcdef',
-    iat: file.nowUnix - 10, exp: file.nowUnix + 50,
-    aid: 'rjwrn', cid: 'v6b', sub: IDENTITY.uid, kind: 'ws.terminal',
+    v: 1,
+    kid: file.kid,
+    jti: '0123456789abcdef0123456789abcdef',
+    iat: file.nowUnix - 10,
+    exp: file.nowUnix + 50,
+    aid: 'rjwrn',
+    cid: 'v6b',
+    sub: IDENTITY.uid,
+    kind: 'ws.terminal',
     org: 'https://console.runos.com',
     ws: { svc: IDENTITY.svc, uid: IDENTITY.uid, user: 'dev', dir: '/home/dev', cmd: '' },
   };
@@ -52,8 +63,15 @@ describe('authenticatePass', () => {
   /** THE ONE THAT MATTERS: a perfectly valid pass for someone else's workspace. */
   it('refuses a valid pass minted for ANOTHER workspace', () => {
     const other = authenticatePass(
-      offer(pass((p) => { p.ws!.svc = 'runostty-someoneelse'; p.ws!.uid = 'ZZ9yR1nVfCcO'; })),
-      file.nowUnix, IDENTITY, keys
+      offer(
+        pass((p) => {
+          p.ws!.svc = 'runostty-someoneelse';
+          p.ws!.uid = 'ZZ9yR1nVfCcO';
+        }),
+      ),
+      file.nowUnix,
+      IDENTITY,
+      keys,
     );
     expect(other.ok).toBe(false);
     expect(other.reason).toContain('runostty-someoneelse');
@@ -65,8 +83,14 @@ describe('authenticatePass', () => {
    */
   it('refuses a pass whose owner differs from this workspace only by case', () => {
     const r = authenticatePass(
-      offer(pass((p) => { p.ws!.uid = IDENTITY.uid.toLowerCase(); })),
-      file.nowUnix, IDENTITY, keys
+      offer(
+        pass((p) => {
+          p.ws!.uid = IDENTITY.uid.toLowerCase();
+        }),
+      ),
+      file.nowUnix,
+      IDENTITY,
+      keys,
     );
     expect(r.ok).toBe(false);
     expect(r.reason).toContain('another owner');
@@ -74,8 +98,16 @@ describe('authenticatePass', () => {
 
   it('refuses a VM pass', () => {
     const r = authenticatePass(
-      offer(pass((p) => { p.kind = 'vm.ssh'; delete p.ws; p.vm = { ns: 'vmgroup-a1b2c', name: 'vm-abcde' }; })),
-      file.nowUnix, IDENTITY, keys
+      offer(
+        pass((p) => {
+          p.kind = 'vm.ssh';
+          delete p.ws;
+          p.vm = { ns: 'vmgroup-a1b2c', name: 'vm-abcde' };
+        }),
+      ),
+      file.nowUnix,
+      IDENTITY,
+      keys,
     );
     expect(r.ok).toBe(false);
   });
@@ -83,13 +115,22 @@ describe('authenticatePass', () => {
   it('refuses a pass signed by a key this workspace does not trust', () => {
     const { privateKey } = generateKeyPairSync('ed25519');
     const foreign = signPass(
-      JSON.parse(JSON.stringify({
-        v: 1, kid: file.kid, jti: '0123456789abcdef0123456789abcdef',
-        iat: file.nowUnix - 10, exp: file.nowUnix + 50, aid: 'rjwrn', cid: 'v6b',
-        sub: IDENTITY.uid, kind: 'ws.terminal', org: 'o',
-        ws: { svc: IDENTITY.svc, uid: IDENTITY.uid, user: 'dev', dir: '', cmd: '' },
-      })),
-      privateKey.export({ format: 'pem', type: 'pkcs8' }).toString()
+      JSON.parse(
+        JSON.stringify({
+          v: 1,
+          kid: file.kid,
+          jti: '0123456789abcdef0123456789abcdef',
+          iat: file.nowUnix - 10,
+          exp: file.nowUnix + 50,
+          aid: 'rjwrn',
+          cid: 'v6b',
+          sub: IDENTITY.uid,
+          kind: 'ws.terminal',
+          org: 'o',
+          ws: { svc: IDENTITY.svc, uid: IDENTITY.uid, user: 'dev', dir: '', cmd: '' },
+        }),
+      ),
+      privateKey.export({ format: 'pem', type: 'pkcs8' }).toString(),
     );
     expect(authenticatePass(offer(foreign), file.nowUnix, IDENTITY, keys).ok).toBe(false);
   });
@@ -108,7 +149,11 @@ describe('authenticatePass', () => {
    * anyone while misconfigured, would make a missing environment variable a silent open door.
    */
   it('admits nobody when it does not know its own identity', () => {
-    for (const identity of [{ svc: '', uid: 'u' }, { svc: 's', uid: '' }, { svc: '', uid: '' }]) {
+    for (const identity of [
+      { svc: '', uid: 'u' },
+      { svc: 's', uid: '' },
+      { svc: '', uid: '' },
+    ]) {
       expect(authenticatePass(offer(pass()), file.nowUnix, identity, keys).ok).toBe(false);
     }
   });
