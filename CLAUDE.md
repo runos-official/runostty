@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Context
 
-runostty is the terminal server that powers RunOS workspaces. Each user in a RunOS cluster gets their own dedicated pod running this container — an Ubuntu 24.04 environment with pre-installed AI coding agents (Claude Code, Codex, Gemini, OpenCode) and DevOps tools (kubectl, k9s). It serves WebSocket terminals and HTTP file management on port 7681. PSKs are rotated frequently by the RunOS control plane and all traffic is served over TLS. Docker images are pushed to `ghcr.io/runos-official/runostty` via GitHub Actions.
+runostty is the terminal server that powers RunOS workspaces. Each user in a RunOS cluster gets their own dedicated pod running this container — an Ubuntu 24.04 environment with pre-installed AI coding agents (Claude Code, Codex, Gemini, OpenCode) and DevOps tools (kubectl, k9s). It serves WebSocket terminals and HTTP file management on port 7681. There is no shared secret: the pod verifies a signed, single-use session pass forwarded by the in-cluster session gate, against a mounted PUBLIC key. Docker images are pushed to `ghcr.io/runos-official/runostty` via GitHub Actions.
 
 ## Build & Development Commands
 
@@ -46,8 +46,8 @@ Port 7681
        └─ PTY shell (node-pty) with uid/gid isolation
 ```
 
-All endpoints authenticate against `/etc/runostty/psk` with the PSK carried in a header, never in
-the URL: `Authorization: Bearer <PSK>` for HTTP, and a `runos.psk.<PSK>` entry in
+All endpoints authenticate a SESSION PASS carried in a header, never in
+the URL: `Authorization: Bearer <pass>` for HTTP, and a `runos.pass.<token>` entry in
 `Sec-WebSocket-Protocol` for the websocket (the only request header a browser's `WebSocket`
 constructor can influence). A token in the query string is REFUSED; it used to be accepted and was
 removed once every client sent headers, because a URL secret lands in the ingress access log, the
@@ -55,7 +55,7 @@ browser's history and any leaked `Referer`.
 
 ### Key modules (`src/lib/`)
 
-- **auth.ts** — PSK loading with timing-safe comparison (`crypto.timingSafeEqual`), Hono `authMiddleware` (sets `userCfg` on context), `authenticateWs()` for WebSocket
+- **auth.ts** — session-pass admission: `authenticateWs()` for the WebSocket, `authMiddleware` for HTTP (sets `userCfg` on context), both delegating to `sessionPass.ts`, which verifies the Ed25519 signature against the mounted gate keys and checks the pass names THIS workspace
 - **terminal.ts** — `handleConnection()`: spawns PTY as the target user, sanitised env (allowlist only), validated resize messages (clamped to 500x200), 1MB message size limit, kills process group on close
 - **files.ts** — directory listing and file content endpoints, scoped to user's home dir, proper error handling on fs operations
 - **download.ts** — streams `tar czf` of `/home/<user>/project/<name>` directly to response, 60s tar timeout, sanitised Content-Disposition

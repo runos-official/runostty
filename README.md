@@ -46,7 +46,7 @@ runostty gives every RunOS user an isolated, persistent workspace where they can
 When you launch a workspace through RunOS, the platform:
 
 1. **Spins up your pod** with a runostty container and a persistent volume for your home directory.
-2. **Injects a pre-shared key (PSK)** into the pod for authentication. PSKs are rotated frequently and all traffic is served over TLS — the token never travels in the clear.
+2. **Mounts the session gate's PUBLIC key** into the pod. There is no shared secret: the pod verifies a signed, single-use session pass that the RunOS control plane minted for one person and this workspace.
 3. **Connects you** via the RunOS frontend, which opens a WebSocket to your pod's terminal server.
 
 From there you can open terminal sessions as the `dev` user (for coding) or `devops` user (for cluster operations). The client can pass a base64-encoded init command via `?cmd=` to automatically launch the right tool on connect.
@@ -65,11 +65,11 @@ Beyond the terminal, runostty exposes HTTP endpoints for programmatic file acces
 | `GET /files/content?path=...` | Read a file with proper MIME type |
 | `GET /download?project=...` | Stream a project directory as a `.tar.gz` archive |
 
-All endpoints require `Authorization: Bearer <PSK>` and scope file access to the authenticated user's home directory. Path traversal is blocked. The websocket carries the same PSK as a `runos.psk.<PSK>` entry in `Sec-WebSocket-Protocol`. A token in the query string is refused on both, so a live credential never reaches an access log or a browser's history.
+All endpoints require `Authorization: Bearer <session pass>` and scope file access to the authenticated user's home directory. Path traversal is blocked. The websocket carries the pass as a `runos.pass.<token>` entry in `Sec-WebSocket-Protocol`. A token in the query string is refused on both, so a live credential never reaches an access log or a browser's history.
 
 ## Security
 
-- **PSK authentication** on every WebSocket and HTTP request. Tokens are validated with timing-safe comparison to prevent timing attacks. Rotated frequently by the RunOS control plane.
+- **Session-pass authentication** on every WebSocket and HTTP request. An Ed25519 signature is checked against the gate's public key, and the pass must name THIS workspace: the raw, case-sensitive owner uid is compared, never the lowercased service name. A pass lasts about a minute and opens one session.
 - **TLS termination** at the ingress layer — all connections to runostty are encrypted in transit.
 - **Path traversal protection** — all file operations are validated to stay within the user's home directory, with symlink resolution.
 - **User isolation** — terminal sessions and file operations run with the target user's UID/GID, not as root. Only a minimal set of environment variables (`PATH`, `LANG`, `TERM`, etc.) are passed to spawned shells.
