@@ -403,7 +403,12 @@ function validateTarget(p: Record<string, unknown>): void {
   const cmd: unknown = ws.cmd ?? '';
   if (typeof dir !== 'string' || typeof cmd !== 'string')
     refuse(PassError.Target, "a ws target's dir and cmd are strings");
-  if (dir.length > MAX_WORKSPACE_DIR_BYTES || cmd.length > MAX_WORKSPACE_CMD_BYTES) {
+  // BYTES, not UTF-16 code units: the gate counts Go's len() and this file must agree with it, or
+  // a CJK/emoji cmd is accepted by one verifier and refused by the other. See conductor's copy.
+  if (
+    Buffer.byteLength(dir, 'utf8') > MAX_WORKSPACE_DIR_BYTES ||
+    Buffer.byteLength(cmd, 'utf8') > MAX_WORKSPACE_CMD_BYTES
+  ) {
     refuse(PassError.Target, "the ws target's dir or cmd is too long");
   }
   if (dir !== '' && !isPrintableAscii(dir))
