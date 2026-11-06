@@ -2,7 +2,9 @@ name: Deploy
 
 on:
   push:
-    branches: [main, dev]
+    # main is only moved by a final release (fast-forward to the final tag), which release.yml
+    # builds with an attestation; building it here too would race that build for :latest.
+    branches: [dev]
     # Tags are built by release.yml (attested, with a release page), not here. Both
     # workflows pushing the same version tag would race.
 
