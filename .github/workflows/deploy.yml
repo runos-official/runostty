@@ -3,7 +3,8 @@ name: Deploy
 on:
   push:
     branches: [main, dev]
-    tags: ['v*']
+    # Tags are built by release.yml (attested, with a release page), not here. Both
+    # workflows pushing the same version tag would race.
 
 permissions:
   contents: read
@@ -35,8 +36,6 @@ jobs:
           tags: |
             type=raw,value=latest,enable=${{ github.ref_name == 'main' }}
             type=raw,value=dev,enable=${{ github.ref_name == 'dev' }}
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=
 
       - uses: docker/build-push-action@v6

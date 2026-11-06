@@ -85,7 +85,18 @@ runostty uses [pino](https://getpino.io/) for structured JSON logging. Every HTT
 
 Automated via GitHub Actions:
 
-- **CI** — runs on every push and PR: type checking, linting, formatting, unit tests, and Docker-based integration tests
-- **Deploy** — pushes to `ghcr.io/runos-official/runostty` on every push to `main` and on version tags (`v*`)
+- **CI** (`ci.yml`) runs on every push and PR to `main` and `dev`: type checking, linting, formatting, unit tests, and Docker-based integration tests.
+- **Leak gate** (`leakcheck.yml`) runs on every push and PR: it keeps credentials and internal identifiers out of this public repo.
+- **Image on push** (`deploy.yml`) pushes `ghcr.io/runos-official/runostty` with the commit SHA as tag, plus `dev` for the `dev` branch and `latest` for the `main` branch.
+- **Release** (`release.yml`) runs when a version tag is pushed. It builds the image, attests its provenance, and publishes the GitHub release.
 
-Images are tagged by branch (`main`), semver (`0.1.0`, `0.1`), and commit SHA. The `RUNOS_ENV` build arg is set via the `RUNOS_ENV` repository variable (defaults to `dev`).
+### Releases
+
+A release is cut from `dev` by `scripts/release.sh`. It runs every gate (the leak gate, the package version, `npm run check`, `npm test`, and a green CI run on the exact commit), tags the commit, waits for the release workflow, and verifies the image and its attestation:
+
+```sh
+scripts/release.sh v0.1.0-rc.1 --check   # every gate, no tag, no push
+scripts/release.sh v0.1.0-rc.1           # gates, tag, push, watch, verify
+```
+
+`package.json` holds the version of the next final, and a candidate of it shares that number. A tag with a `-rc.N` suffix is a pre-release: the image is tagged with its exact version and with `dev`, and never with `latest`. A final is cut from the exact commit that shipped as a release candidate. It is a new build, tagged with its version, its minor version and `latest`. The `RUNOS_ENV` build argument is `dev` for a candidate and `beta` for a final. `deployed` records the last commit that shipped.
